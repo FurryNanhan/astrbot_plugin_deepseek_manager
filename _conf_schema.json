@@ -26,7 +26,7 @@
     "default": "comma",
     "options": ["comma", "short"],
     "hint": "comma 为全数字带逗号（如 1,000,000）；short 为字母缩写量（如 1.00M）。"
-  }
+  },
   "request_timeout": {
     "description": "请求超时时间（秒）",
     "type": "int",

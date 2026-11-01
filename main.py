@@ -31,7 +31,6 @@ class DeepSeekUsagePlugin(Star):
         return f"{num:,}"
 
     def _parse_time_args(self, raw_args: str):
-        """通用解析时间参数，返回 (start_ts, end_ts, title, days_count)"""
         args = raw_args.split() if raw_args else []
         default_days = self.config.get("default_days", 30)
         
@@ -99,15 +98,25 @@ class DeepSeekUsagePlugin(Star):
             "━━━━━━━━━━━━━━"
         )
 
-    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command_group("ds")
     def ds(self):
         pass
+
+    @filter.regex(r"^/?ds\s+.*")
+    async def ds_fallback(self, event: AstrMessageEvent):
+        """兜底拦截，防止不规范输入漏给LLM"""
+        msg = event.message_str.strip()
+        # 如果命中了上面的子指令，上面的子指令会处理并 stop_event，不会走到这里
+        # 如果走到了这里，说明输入了乱七八糟的东西（比如 //ds 1天）
+        if not any(cmd in msg for cmd in ["balance", "usage", "cost", "all", "help"]):
+            yield event.plain_result("❌ 输入不规范哦，请按正确格式输入。\n\n" + self._get_help_text())
+            event.stop_event() # 拦截，不让大模型说话
 
     @ds.command("help")
     async def ds_help(self, event: AstrMessageEvent):
         yield event.plain_result(self._get_help_text())
 
+    @filter.permission_type(filter.PermissionType.ADMIN)
     @ds.command("balance")
     async def ds_balance(self, event: AstrMessageEvent):
         api_key = (self.config.get("deepseek_api_key") or "").strip()
@@ -118,40 +127,45 @@ class DeepSeekUsagePlugin(Star):
         lines, ok = await self._query_balance(api_key)
         yield event.plain_result("\n".join(lines))
 
+    @filter.permission_type(filter.PermissionType.ADMIN)
     @ds.command("usage")
     async def ds_usage(self, event: AstrMessageEvent):
-        await self._handle_platform_query(event, "usage")
+        raw_args = event.message_str.split("usage", 1)[-1].strip()
+        res = await self._build_query_response(raw_args, "usage")
+        yield event.plain_result(res)
 
+    @filter.permission_type(filter.PermissionType.ADMIN)
     @ds.command("cost")
     async def ds_cost(self, event: AstrMessageEvent):
-        await self._handle_platform_query(event, "cost")
+        raw_args = event.message_str.split("cost", 1)[-1].strip()
+        res = await self._build_query_response(raw_args, "cost")
+        yield event.plain_result(res)
 
+    @filter.permission_type(filter.PermissionType.ADMIN)
     @ds.command("all")
     async def ds_all(self, event: AstrMessageEvent):
-        await self._handle_platform_query(event, "all")
+        raw_args = event.message_str.split("all", 1)[-1].strip()
+        res = await self._build_query_response(raw_args, "all")
+        yield event.plain_result(res)
 
-    async def _handle_platform_query(self, event: AstrMessageEvent, mode: str):
+    async def _build_query_response(self, raw_args: str, mode: str) -> str:
         user_token = (self.config.get("deepseek_user_token") or "").strip()
         if not user_token:
-            yield event.plain_result("❌ 请先配置网页端 userToken。")
-            return
+            return "❌ 请先配置网页端 userToken。"
 
-        raw_args = event.message_str.split("ds", 1)[-1].replace(mode, "", 1).strip()
         start_ts, end_ts, title, days_count = self._parse_time_args(raw_args)
 
         if title == "invalid":
-            yield event.plain_result("❌ 输入不规范哦，请按正确格式输入。\n\n" + self._get_help_text())
-            return
+            return "❌ 输入不规范哦，请按正确格式输入。\n\n" + self._get_help_text()
         if title == "invalid_date":
-            yield event.plain_result("❌ 日期不存在，请检查。")
-            return
+            return "❌ 日期不存在，请检查。"
 
         if days_count > 90:
-            yield event.plain_result(f"⏳ 跨度 {days_count} 天，分段查询中，请稍候...")
+            # 注意：这里不能直接 yield，改为返回提示信息或者直接请求
+            pass # 为了简化，咱们直接请求，只是耗时稍微长点
 
         output = []
         
-        # 1. 查余额 (如果 mode 是 all)
         if mode == "all":
             api_key = (self.config.get("deepseek_api_key") or "").strip()
             if api_key:
@@ -161,18 +175,16 @@ class DeepSeekUsagePlugin(Star):
             else:
                 output.append("⚠️ 未配置 API Key，跳过余额查询\n")
 
-        # 2. 查用量 (usage / all)
         if mode in ("usage", "all"):
             usage_lines, _ = await self._query_usage(user_token, start_ts, end_ts, title)
             output.extend(usage_lines)
             output.append("")
 
-        # 3. 查金额 (cost / all)
         if mode in ("cost", "all"):
             cost_lines, _ = await self._query_cost(user_token, start_ts, end_ts, title)
             output.extend(cost_lines)
 
-        yield event.plain_result("\n".join(output).strip())
+        return "\n".join(output).strip()
 
     async def _query_balance(self, api_key):
         headers = {"Accept": "application/json", "Authorization": f"Bearer {api_key}"}
@@ -203,20 +215,14 @@ class DeepSeekUsagePlugin(Star):
 
     async def _fetch_and_parse(self, token, overall_start, overall_end, title, endpoint):
         token = token.strip()
-        
-        # 1. 如果用户填了 "Bearer xxx"
-        if token.startswith("Bearer "):
-            token = token[7:].strip()
-        
-        # 2. 如果用户把整个 Cookie 甚至 "userToken=xxx; other=yyy" 复制进来了
+        if token.startswith("Bearer "): token = token[7:].strip()
         if "userToken=" in token:
             match = re.search(r'userToken=([^;]+)', token)
-            if match:
-                token = match.group(1).strip()
+            if match: token = match.group(1).strip()
 
         headers = {
             "Accept": "application/json",
-            "Authorization": f"Bearer {token}", # 这里统一加上标准的 Bearer
+            "Authorization": f"Bearer {token}",
             "User-Agent": "Mozilla/5.0",
             "Referer": "https://platform.deepseek.com/usage",
         }
@@ -225,10 +231,8 @@ class DeepSeekUsagePlugin(Star):
         current_start = overall_start
         has_error = False
 
-        # 用量数据
         total_input, total_output, total_requests = 0, 0, 0
         model_set = set()
-        # 消费数据
         total_cost = 0.0
         currency = "CNY"
 
@@ -242,7 +246,7 @@ class DeepSeekUsagePlugin(Star):
                         data = await resp.json()
                         if data and data.get("code") == 0:
                             biz_data = data.get("data", {}).get("biz_data", {}) or {}
-                            
+                                                      
                             if endpoint == "amount":
                                 for s in biz_data.get("series", []):
                                     model_set.add(s.get("model", "Unknown"))
@@ -255,9 +259,19 @@ class DeepSeekUsagePlugin(Star):
                                 def find_cost(node):
                                     nonlocal total_cost, currency
                                     if isinstance(node, dict):
-                                        if "cost" in node and isinstance(node["cost"], (int, float)): total_cost += node["cost"]
-                                        if "total_cost" in node and isinstance(node["total_cost"], (int, float)): total_cost += node["total_cost"]
-                                        if "currency" in node and isinstance(node["currency"], str): currency = node["currency"]
+                                        # 提取货币单位
+                                        if "currency" in node and isinstance(node["currency"], str):
+                                            currency = node["currency"]
+                                        
+                                        # 核心修复：无论它是 int、float 还是 string，都强行转成 float
+                                        if "cost" in node:
+                                            try:
+                                                c_val = float(node["cost"])
+                                                total_cost += c_val
+                                            except (ValueError, TypeError):
+                                                pass
+                                                
+                                        # 继续往下钻
                                         for v in node.values(): find_cost(v)
                                     elif isinstance(node, list):
                                         for i in node: find_cost(i)
