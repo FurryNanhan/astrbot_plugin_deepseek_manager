@@ -1,0 +1,35 @@
+{
+  "deepseek_api_key": {
+    "description": "DeepSeek 官方 API Key（安全，仅用于查询余额）",
+    "type": "string",
+    "hint": "在 platform.deepseek.com 获取，以 sk- 开头。填了才能用 /ds balance",
+    "secret": true,
+    "default": ""
+  },
+  "deepseek_user_token": {
+    "description": "DeepSeek 网页端 userToken（进阶，用于查询用量和金额）",
+    "type": "string",
+    "hint": "登录网页端 -> F12 -> Application -> Local Storage -> 复制 userToken。填了才能用 /ds usage 和 /ds cost",
+    "secret": true,
+    "default": ""
+  },
+  "default_days": {
+    "description": "默认查询天数",
+    "type": "int",
+    "default": 30,
+    "options": [1, 7, 15, 30],
+    "hint": "使用 /ds usage 或 /ds cost 不带参数时的默认天数。"
+  },
+  "number_format": {
+    "description": "数字展示格式",
+    "type": "string",
+    "default": "comma",
+    "options": ["comma", "short"],
+    "hint": "comma 为全数字带逗号（如 1,000,000）；short 为字母缩写量（如 1.00M）。"
+  }
+  "request_timeout": {
+    "description": "请求超时时间（秒）",
+    "type": "int",
+    "default": 10
+  }
+}
