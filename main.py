@@ -189,7 +189,8 @@ class DeepSeekUsagePlugin(Star):
     async def _query_balance(self, api_key):
         headers = {"Accept": "application/json", "Authorization": f"Bearer {api_key}"}
         try:
-            async with self.session.get("https://api.deepseek.com/user/balance", headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            timeout_val = self.config.get("request_timeout", 10)
+            async with self.session.get("https://api.deepseek.com/user/balance", headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_val)) as resp:    
                 if resp.status == 401: return (["❌ API Key 无效"], False)
                 if resp.status != 200: return ([f"❌ 查询失败，状态码 {resp.status}"], False)
                 data = await resp.json()
@@ -241,7 +242,8 @@ class DeepSeekUsagePlugin(Star):
             url = f"https://platform.deepseek.com/api/v0/usage/by_api_key/{endpoint}?start={current_start}&end={current_end}&tz=28800"
             
             try:
-                async with self.session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                timeout_val = self.config.get("request_timeout", 10)
+                async with self.session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_val)) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         if data and data.get("code") == 0:

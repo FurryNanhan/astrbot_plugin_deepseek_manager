@@ -2,7 +2,7 @@ name: astrbot_plugin_deepseek_manager
 display_name: DeepSeek 账户管家
 desc: 一站式查询 DeepSeek 账户余额、Token 用量与消费金额。
 short_desc: 极客级查账神器！支持查余额、查用量、查消费，双模式配置。
-version: 2.0.0
+version: 2.0.1
 author: FURRY南寒
 repo: https://github.com/FurryNanhan/astrbot_plugin_deepseek_manager
 support_platforms:
